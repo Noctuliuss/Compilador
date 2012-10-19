@@ -1,0 +1,195 @@
+package Parse;
+
+action code {: static Symbol.Symbol sym(String s) {
+	         return Symbol.Symbol.symbol(s);
+	        }
+	    :};
+
+
+parser code  {: 
+  public Absyn.Exp parseResult;
+  Lexer lexer;
+
+  public void syntax_error(java_cup.runtime.Symbol current) {
+   report_error("Syntax error (" + current.sym + ")", current);
+  }
+
+  ErrorMsg.ErrorMsg errorMsg;
+
+  public void report_error(String message, 
+			   java_cup.runtime.Symbol info) {
+      errorMsg.error(info.left, message);
+  }
+
+  public Grm(Lexer l, ErrorMsg.ErrorMsg err) {
+    this();
+    errorMsg=err;
+    lexer=l;
+  }
+:};
+
+
+scan with {: return lexer.nextToken(); :};
+
+/* terminals and non-terminals */
+terminal String ID, STRING;
+terminal Integer INT;
+terminal COMMA, COLON, SEMICOLON, LPAREN, RPAREN, LBRACK, RBRACK, 
+	LBRACE, RBRACE, DOT, PLUS, MINUS, TIMES, DIVIDE, EQ, NEQ, LT, LE, 
+	GT, GE, AND, OR, ASSIGN, ARRAY, IF, THEN, ELSE, WHILE, FOR, TO,
+	DO, LET, IN, END, OF, BREAK, NIL, FUNCTION, VAR, TYPE, UMINUS;
+
+non terminal decs;
+non terminal dec;
+non terminal tydec;
+non terminal vardec;
+non terminal fundec;
+non terminal ty;
+non terminal tyfields;
+non terminal tyfields2;
+non terminal lvalue;
+non terminal exp;
+non terminal expseq;
+non terminal expseq2;
+non terminal expseqf;
+non terminal expseqf2;
+non terminal op;
+non terminal fieldexps;
+non terminal fieldexps2;
+
+/* precedence and associativity of operators */
+precedence left OR;
+precedence left AND;
+precedence nonassoc EQ, NEQ, GT, LT, GE, LE;
+precedence left PLUS, MINUS;
+precedence left TIMES, DIVIDE;
+precedence left UMINUS;
+
+start with exp;
+
+/* declarations */
+
+decs ::= /* epsilon */ | dec:head decs:tail;
+
+dec ::= tydec:d ;
+
+dec ::= vardec:d ;
+
+dec ::= fundec:d ;
+
+tydec ::= TYPE:u ID:name EQ ty:ty;
+
+ty ::= ID:name ;
+
+ty ::= LBRACE:u tyfields:fields RBRACE ;
+
+ty ::= ARRAY:u OF ID:typ ;
+
+tyfields ::= /* epsilon */ | ID:name COLON ID:typ tyfields2:tail;
+
+tyfields2 ::= /* epsilon */ | COMMA ID:name COLON ID:typ tyfields2:tail;
+
+vardec ::= VAR:u ID:name ASSIGN exp:init ;
+
+vardec ::= VAR:u ID:name COLON ID:typ ASSIGN exp:init ;
+
+fundec ::= FUNCTION:u ID:name LPAREN tyfields:params RPAREN EQ exp:body ;
+
+fundec ::= FUNCTION:u ID:name LPAREN tyfields:params RPAREN COLON ID:result EQ exp:body ;
+
+/* l-value */
+lvalue ::= ID:name ;
+
+lvalue ::= lvalue:var DOT ID:field ;
+
+lvalue ::= lvalue:var LBRACK exp:index RBRACK ;
+
+/* the seemingly redundant rule to solve confusion */
+lvalue ::= ID:name LBRACK exp:index RBRACK ;
+
+/* l-value expression */
+exp ::= lvalue:var ;
+
+/* nil expression */
+exp ::= NIL:u ;
+
+/* sequencing expression */
+exp ::= LPAREN:u expseq:list RPAREN ;
+
+/* integer literal expression */
+exp ::= INT:i ;
+
+/* string literal expression */
+exp ::= STRING:s;
+
+/* negation expression */
+exp ::= MINUS:u exp:right %prec UMINUS;
+
+/* function call */
+exp ::= ID:func LPAREN expseqf:args RPAREN ;
+
+/* arithmetic and comparison */
+exp ::= exp:e1 PLUS exp:e2 ;
+
+exp ::= exp:e1 MINUS exp:e2 ;
+
+exp ::= exp:e1 TIMES exp:e2;
+
+exp ::= exp:e1 DIVIDE exp:e2 ;
+
+exp ::= exp:e1 EQ exp:e2 ;
+
+exp ::= exp:e1 NEQ exp:e2 ;
+
+exp ::= exp:e1 GT exp:e2 ;
+
+exp ::= exp:e1 LT exp:e2;
+
+exp ::= exp:e1 GE exp:e2 ;
+
+exp ::= exp:e1 LE exp:e2 ;
+
+/* boolean operators */
+exp ::= exp:e1 AND exp:e2;
+
+exp ::= exp:e1 OR exp:e2;
+
+/* record creation */
+exp ::= ID:typ LBRACE fieldexps:fields RBRACE ;
+
+fieldexps ::= /* epsilon */ | ID:name EQ exp:init fieldexps2:tail;
+
+fieldexps2 ::= /* epsilon */ | COMMA ID:name EQ exp:init fieldexps2:tail ;
+
+/* array creation */
+exp ::= ID:typ LBRACK exp:size RBRACK OF exp:init ;
+
+/* assignment */
+exp ::= lvalue:var ASSIGN exp:exp;
+
+/* if-then-else */
+exp ::= IF:u exp:test THEN exp:thenclause ELSE exp:elseclause ;
+
+/* if-then */
+exp ::= IF:u exp:test THEN exp:thenclause ;
+
+/* while */
+exp ::= WHILE:u exp:test DO exp:body;
+
+/* for */
+exp ::= FOR:u ID:name ASSIGN exp:init TO exp:hi DO exp:body;
+
+/* break */
+exp ::= BREAK:u ;
+
+/* let */
+exp ::= LET:u decs:decs IN expseq:body END ;
+
+/* expression sequence */
+expseq ::= /* epsilon */ | exp:head expseq2:tail ;
+
+expseq2 ::= /* epsilon */ | SEMICOLON exp:head expseq2:tail ;
+
+expseqf ::= /* epsilon */ | exp:head expseqf2:tail ;
+
+expseqf2 ::= /* epsilon */ | COMMA exp:head expseqf2:tail ;
