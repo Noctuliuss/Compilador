@@ -1,6 +1,8 @@
 package analisador.sintatico;
+import Absyn.*;
 import analisador.lexico.Yylex;
 import error.ErrorMsg;
+import java_cup.runtime.Symbol;
 
 public class Parse {
 
@@ -17,7 +19,9 @@ public class Parse {
        Grm parser = new Grm(lex, errorMsg);
 
       try {
-          parser.debug_parse();
+          Symbol node = parser./*debug_*/parse();
+          Print print = new Print(System.out);
+          print.prExp((Exp)node.value, 0);
       } catch (Throwable e) {
 	e.printStackTrace();
 	throw new Error(e.toString());
