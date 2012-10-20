@@ -39,23 +39,23 @@ terminal COMMA, COLON, SEMICOLON, LPAREN, RPAREN, LBRACK, RBRACK,
 	GT, GE, AND, OR, ASSIGN, ARRAY, IF, THEN, ELSE, WHILE, FOR, TO,
 	DO, LET, IN, END, OF, BREAK, NIL, FUNCTION, VAR, TYPE, UMINUS;
 
-non terminal decs;
-non terminal dec;
-non terminal tydec;
-non terminal vardec;
-non terminal fundec;
-non terminal ty;
-non terminal tyfields;
-non terminal tyfields2;
-non terminal lvalue;
-non terminal exp;
-non terminal expseq;
-non terminal expseq2;
-non terminal expseqf;
-non terminal expseqf2;
-non terminal op;
-non terminal fieldexps;
-non terminal fieldexps2;
+non terminal DecList decs;
+non terminal Dec dec;
+non terminal TypeDec tydec;
+non terminal VarDec vardec;
+non terminal FunctionDec fundec;
+non terminal Ty ty;
+non terminal FieldList tyfields;
+non terminal FieldList tyfields2;
+non terminal Var lvalue;
+/* expressao*/
+non terminal Exp exp;
+non terminal ExpList expseq;
+non terminal ExpList expseq2;
+non terminal ExpList expseqf;
+non terminal ExpList expseqf2;
+non terminal FieldExpList fieldexps;
+non terminal FieldExpList fieldexps2;
 
 /* precedence and associativity of operators */
 precedence left OR;
@@ -68,128 +68,253 @@ precedence left UMINUS;
 start with exp;
 
 /* declarations */
+decs ::= /* epsilon */ | dec:head decs:tail {:
+	if (head instanceof TypeDec && tail != null && tail.head instanceof TypeDec) {
+		TypeDec p = (TypeDec)head, q = (TypeDec)tail.head;
+		RESULT = new DecList(new TypeDec(p.pos, p.name, p.ty, q), tail.tail);
+	} else if (head instanceof FunctionDec && tail != null && tail.head instanceof FunctionDec) {
+		FunctionDec p = (FunctionDec)head, q = (FunctionDec)tail.head;
+		RESULT = new DecList(new FunctionDec(p.pos, p.name, p.params, p.result, p.body, q), tail.tail);
+	} else {
+		RESULT = new DecList(head, tail);
+	}
+:};
 
-decs ::= /* epsilon */ | dec:head decs:tail;
+dec ::= tydec:d {:
+	RESULT = d;
+:};
 
-dec ::= tydec:d ;
+dec ::= vardec:d {:
+	RESULT = d;
+:};
 
-dec ::= vardec:d ;
+dec ::= fundec:d {:
+	RESULT = d;
+:};
 
-dec ::= fundec:d ;
+tydec ::= TYPE:u ID:name EQ ty:ty {:
+	RESULT = new TypeDec(uleft, sym(name), ty, null);
+:};
 
-tydec ::= TYPE:u ID:name EQ ty:ty;
+ty ::= ID:name {:
+	RESULT = new NameTy(nameleft, sym(name));
+:};
 
-ty ::= ID:name ;
+ty ::= LBRACE:u tyfields:fields RBRACE {:
+	RESULT = new RecordTy(uleft, fields);
+:};
 
-ty ::= LBRACE:u tyfields:fields RBRACE ;
+ty ::= ARRAY:u OF ID:typ {:
+	RESULT = new ArrayTy(uleft, sym(typ));
+:};
 
-ty ::= ARRAY:u OF ID:typ ;
+tyfields ::= /* epsilon */ | ID:name COLON ID:typ tyfields2:tail {:
+	RESULT = new FieldList(nameleft, sym(name), sym(typ), tail);
+:};
 
-tyfields ::= /* epsilon */ | ID:name COLON ID:typ tyfields2:tail;
+tyfields2 ::= /* epsilon */ | COMMA ID:name COLON ID:typ tyfields2:tail {:
+	RESULT = new FieldList(nameleft, sym(name), sym(typ), tail);
+:};
 
-tyfields2 ::= /* epsilon */ | COMMA ID:name COLON ID:typ tyfields2:tail;
+vardec ::= VAR:u ID:name ASSIGN exp:init {:
+	RESULT = new VarDec(uleft, sym(name), null, init);
+:};
 
-vardec ::= VAR:u ID:name ASSIGN exp:init ;
+vardec ::= VAR:u ID:name COLON ID:typ ASSIGN exp:init {:
+	RESULT = new VarDec(uleft, sym(name), new NameTy(typleft, sym(typ)), init);
+:};
 
-vardec ::= VAR:u ID:name COLON ID:typ ASSIGN exp:init ;
+fundec ::= FUNCTION:u ID:name LPAREN tyfields:params RPAREN EQ exp:body {:
+	RESULT = new FunctionDec(uleft, sym(name), params, null, body, null);
+:};
 
-fundec ::= FUNCTION:u ID:name LPAREN tyfields:params RPAREN EQ exp:body ;
-
-fundec ::= FUNCTION:u ID:name LPAREN tyfields:params RPAREN COLON ID:result EQ exp:body ;
+fundec ::= FUNCTION:u ID:name LPAREN tyfields:params RPAREN COLON ID:result EQ exp:body {:
+	RESULT = new FunctionDec(uleft, sym(name), params,
+		new NameTy(resultleft, sym(result)), body, null);
+:};
 
 /* l-value */
-lvalue ::= ID:name ;
+lvalue ::= ID:name {:
+	RESULT = new SimpleVar(nameleft, sym(name));
+:};
 
-lvalue ::= lvalue:var DOT ID:field ;
+lvalue ::= lvalue:var DOT ID:field {:
+	RESULT = new FieldVar(varleft, var, sym(field));
+:};
 
-lvalue ::= lvalue:var LBRACK exp:index RBRACK ;
+lvalue ::= lvalue:var LBRACK exp:index RBRACK {:
+	RESULT = new SubscriptVar(varleft, var, index);
+:};
 
 /* the seemingly redundant rule to solve confusion */
-lvalue ::= ID:name LBRACK exp:index RBRACK ;
+lvalue ::= ID:name LBRACK exp:index RBRACK {:
+	RESULT = new SubscriptVar(nameleft, new SimpleVar(nameleft, sym(name)), index);
+:};
 
 /* l-value expression */
-exp ::= lvalue:var ;
+exp ::= lvalue:var {:
+	RESULT = new VarExp(varleft, var);
+:};
 
 /* nil expression */
-exp ::= NIL:u ;
+exp ::= NIL:u {:
+	RESULT = new NilExp(uleft);
+:};
 
 /* sequencing expression */
-exp ::= LPAREN:u expseq:list RPAREN ;
+exp ::= LPAREN:u expseq:list RPAREN {:
+	if (list == null) {
+		RESULT = new SeqExp(0, null);
+	} else if (list.tail == null) {
+		RESULT = list.head;
+	} else {
+		RESULT = new SeqExp(uleft, list);
+	}
+:};
 
 /* integer literal expression */
-exp ::= INT:i ;
+exp ::= INT:i {:
+	RESULT = new IntExp(ileft, i);
+:};
 
 /* string literal expression */
-exp ::= STRING:s;
+exp ::= STRING:s {:
+	RESULT = new StringExp(sleft, s.intern());
+:};
 
 /* negation expression */
-exp ::= MINUS:u exp:right %prec UMINUS;
+exp ::= MINUS:u exp:right {:
+	RESULT = new OpExp(uleft, new IntExp(uleft, 0), OpExp.MINUS, right);
+:} %prec UMINUS;
 
 /* function call */
-exp ::= ID:func LPAREN expseqf:args RPAREN ;
+exp ::= ID:func LPAREN expseqf:args RPAREN {:
+	RESULT = new CallExp(funcleft, sym(func), args);
+:};
 
 /* arithmetic and comparison */
-exp ::= exp:e1 PLUS exp:e2 ;
+exp ::= exp:e1 PLUS exp:e2 {:
+	RESULT = new OpExp(e1left, e1, OpExp.PLUS, e2);
+:};
 
-exp ::= exp:e1 MINUS exp:e2 ;
+exp ::= exp:e1 MINUS exp:e2 {:
+	RESULT = new OpExp(e1left, e1, OpExp.MINUS, e2);
+:};
 
-exp ::= exp:e1 TIMES exp:e2;
+exp ::= exp:e1 TIMES exp:e2 {:
+	RESULT = new OpExp(e1left, e1, OpExp.MUL, e2);
+:};
 
-exp ::= exp:e1 DIVIDE exp:e2 ;
+exp ::= exp:e1 DIVIDE exp:e2 {:
+	RESULT = new OpExp(e1left, e1, OpExp.DIV, e2);
+:};
 
-exp ::= exp:e1 EQ exp:e2 ;
+exp ::= exp:e1 EQ exp:e2 {:
+	RESULT = new OpExp(e1left, e1, OpExp.EQ, e2);
+:};
 
-exp ::= exp:e1 NEQ exp:e2 ;
+exp ::= exp:e1 NEQ exp:e2 {:
+	RESULT = new OpExp(e1left, e1, OpExp.NE, e2);
+:};
 
-exp ::= exp:e1 GT exp:e2 ;
+exp ::= exp:e1 GT exp:e2 {:
+	RESULT = new OpExp(e1left, e1, OpExp.GT, e2);
+:};
 
-exp ::= exp:e1 LT exp:e2;
+exp ::= exp:e1 LT exp:e2 {:
+	RESULT = new OpExp(e1left, e1, OpExp.LT, e2);
+:};
 
-exp ::= exp:e1 GE exp:e2 ;
+exp ::= exp:e1 GE exp:e2 {:
+	RESULT = new OpExp(e1left, e1, OpExp.GE, e2);
+:};
 
-exp ::= exp:e1 LE exp:e2 ;
+exp ::= exp:e1 LE exp:e2 {:
+	RESULT = new OpExp(e1left, e1, OpExp.LE, e2);
+:};
 
 /* boolean operators */
-exp ::= exp:e1 AND exp:e2;
+exp ::= exp:e1 AND exp:e2 {:
+	RESULT = new IfExp(e1left, e1, e2, new IntExp(e2right, 0));
+:};
 
-exp ::= exp:e1 OR exp:e2;
+exp ::= exp:e1 OR exp:e2 {:
+	RESULT = new IfExp(e1left, e1, new IntExp(e1right, 1), e2);
+:};
 
 /* record creation */
-exp ::= ID:typ LBRACE fieldexps:fields RBRACE ;
+exp ::= ID:typ LBRACE fieldexps:fields RBRACE {:
+	RESULT = new RecordExp(typleft, sym(typ), fields);
+:};
 
-fieldexps ::= /* epsilon */ | ID:name EQ exp:init fieldexps2:tail;
+fieldexps ::= /* epsilon */ | ID:name EQ exp:init fieldexps2:tail {:
+	RESULT = new FieldExpList(nameleft, sym(name), init, tail);
+:};
 
-fieldexps2 ::= /* epsilon */ | COMMA ID:name EQ exp:init fieldexps2:tail ;
+fieldexps2 ::= /* epsilon */ | COMMA ID:name EQ exp:init fieldexps2:tail {:
+	RESULT = new FieldExpList(nameleft, sym(name), init, tail);
+:};
 
 /* array creation */
-exp ::= ID:typ LBRACK exp:size RBRACK OF exp:init ;
+exp ::= ID:typ LBRACK exp:size RBRACK OF exp:init {:
+	RESULT = new ArrayExp(typleft, sym(typ), size, init);
+:};
 
 /* assignment */
-exp ::= lvalue:var ASSIGN exp:exp;
+exp ::= lvalue:var ASSIGN exp:exp {:
+	RESULT = new AssignExp(varleft, var, exp);
+:};
 
 /* if-then-else */
-exp ::= IF:u exp:test THEN exp:thenclause ELSE exp:elseclause ;
+exp ::= IF:u exp:test THEN exp:thenclause ELSE exp:elseclause {:
+	RESULT = new IfExp(uleft, test, thenclause, elseclause);
+:};
 
 /* if-then */
-exp ::= IF:u exp:test THEN exp:thenclause ;
+exp ::= IF:u exp:test THEN exp:thenclause {:
+	RESULT = new IfExp(uleft, test, thenclause);
+:};
 
 /* while */
-exp ::= WHILE:u exp:test DO exp:body;
+exp ::= WHILE:u exp:test DO exp:body {:
+	RESULT = new WhileExp(uleft, test, body);
+:};
 
 /* for */
-exp ::= FOR:u ID:name ASSIGN exp:init TO exp:hi DO exp:body;
+exp ::= FOR:u ID:name ASSIGN exp:init TO exp:hi DO exp:body {:
+	RESULT = new ForExp(uleft, new VarDec(nameleft, sym(name),
+		new NameTy(nameright, sym("int")), init), hi, body);
+:};
 
 /* break */
-exp ::= BREAK:u ;
+exp ::= BREAK:u {:
+	RESULT = new BreakExp(uleft);
+:};
 
 /* let */
-exp ::= LET:u decs:decs IN expseq:body END ;
+exp ::= LET:u decs:decs IN expseq:body END {:
+	if (body == null) {
+		RESULT = new LetExp(uleft, decs, new SeqExp(0, null));
+	} else if (body.tail == null) {
+		RESULT = new LetExp(uleft, decs, body.head);
+	} else {
+		RESULT = new LetExp(uleft, decs, new SeqExp(bodyleft, body));
+	}
+:};
 
 /* expression sequence */
-expseq ::= /* epsilon */ | exp:head expseq2:tail ;
+expseq ::= /* epsilon */ | exp:head expseq2:tail {:
+	RESULT = new ExpList(head, tail);
+:};
 
-expseq2 ::= /* epsilon */ | SEMICOLON exp:head expseq2:tail ;
+expseq2 ::= /* epsilon */ | SEMICOLON exp:head expseq2:tail {:
+	RESULT = new ExpList(head, tail);
+:};
 
-expseqf ::= /* epsilon */ | exp:head expseqf2:tail ;
+expseqf ::= /* epsilon */ | exp:head expseqf2:tail {:
+	RESULT = new ExpList(head, tail);
+:};
 
-expseqf2 ::= /* epsilon */ | COMMA exp:head expseqf2:tail ;
+expseqf2 ::= /* epsilon */ | COMMA exp:head expseqf2:tail {:
+	RESULT = new ExpList(head, tail);
+:};
